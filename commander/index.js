@@ -25,7 +25,7 @@ const process = {
   stdout: _process.stdout || {
     columns: 80,
     write(str) {
-        Deno.stderr.writeSync(new TextEncoder().encode(str))
+        Deno.stdout.writeSync(new TextEncoder().encode(str))
     }
   },
   exit: Deno.exit
