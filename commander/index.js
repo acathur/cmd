@@ -2,10 +2,10 @@
  * Module dependencies.
  */
 
-import { EventEmitter } from 'https://deno.land/std/node/events.ts'
-import * as path from 'https://deno.land/std/path/mod.ts'
-import * as _fs from 'https://deno.land/std/fs/mod.ts'
-import * as _process from 'https://deno.land/std/node/process.ts'
+import { EventEmitter } from 'https://deno.land/std@0.54.0/node/events.ts'
+import * as path from 'https://deno.land/std@0.54.0/path/mod.ts'
+import * as _fs from 'https://deno.land/std@0.54.0/fs/mod.ts'
+import * as _process from 'https://deno.land/std@0.54.0/node/process.ts'
 
 const spawn = (command, args) => {
   return Deno.run({
