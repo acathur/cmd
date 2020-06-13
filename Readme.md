@@ -5,7 +5,7 @@ Commander.js (command-line interfaces) for Deno, base on TJ's [commander.js](htt
 ## Usage
 
 ```ts
-import { Command } from 'https://deno.land/x/cmd/mod.ts'
+import { Command } from 'https://cdn.depjs.com/cmd/mod.ts'
 
 const program = new Command(/* name */)
 
