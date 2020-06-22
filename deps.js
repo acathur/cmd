@@ -1,6 +1,6 @@
 
-export { EventEmitter } from 'https://deno.land/std/node/events.ts'
-export * as path from 'https://deno.land/std@0.54.0/path/mod.ts'
+import { EventEmitter } from 'https://deno.land/std/node/events.ts'
+import * as path from 'https://deno.land/std@0.54.0/path/mod.ts'
 import * as _process from 'https://deno.land/std/node/process.ts'
 
 export const spawn = (command, args) => {
@@ -37,4 +37,9 @@ export const process = {
     }
   },
   exit: Deno.exit
+}
+
+export {
+  path,
+  EventEmitter
 }
