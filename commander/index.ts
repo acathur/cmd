@@ -1,18 +1,29 @@
 /**
  * Module dependencies.
  */
-
+import './types.ts'
 import {
   EventEmitter,
+  Buffer,
   fs,
   process,
   path,
   spawn
-} from '../deps.js'
+} from '../deps.ts'
 
 // @ts-check
 
 class Option {
+  flags: string;
+  required: boolean; // A value must be supplied when the option is specified.
+  optional: boolean; // A value is optional when the option is specified.
+  mandatory: boolean; // The option must have a value after parsing, which usually means it must be specified on command line.
+  negate: boolean;
+  short?: string;
+  long: string;
+  description: string;
+  defaultValue?: string;
+
   /**
    * Initialize a new `Option` with the given `flags` and `description`.
    *
@@ -21,7 +32,7 @@ class Option {
    * @api public
    */
 
-  constructor(flags, description) {
+  constructor(flags: string, description?: string) {
     this.flags = flags;
     this.required = flags.indexOf('<') >= 0; // A value must be supplied when the option is specified.
     this.optional = flags.indexOf('[') >= 0; // A value is optional when the option is specified.
@@ -29,7 +40,7 @@ class Option {
     this.negate = flags.indexOf('-no-') !== -1;
     const flagParts = flags.split(/[ ,|]+/);
     if (flagParts.length > 1 && !/^[[<]/.test(flagParts[1])) this.short = flagParts.shift();
-    this.long = flagParts.shift();
+    this.long = flagParts.shift() + '';
     this.description = description || '';
     this.defaultValue = undefined;
   }
@@ -65,7 +76,7 @@ class Option {
    * @api private
    */
 
-  is(arg) {
+  is(arg?: string) {
     return this.short === arg || this.long === arg;
   };
 }
@@ -75,6 +86,10 @@ class Option {
  * @class
  */
 class CommanderError extends Error {
+  code: string;
+  exitCode: number;
+  nestedError?: string;
+
   /**
    * Constructs the CommanderError class
    * @param {number} exitCode suggested exit code which could be used with process.exit
@@ -82,7 +97,7 @@ class CommanderError extends Error {
    * @param {string} message human-readable description of the error
    * @constructor
    */
-  constructor(exitCode, code, message) {
+  constructor(exitCode: number, code: string, message: string) {
     super(message);
     // properly capture stack trace in Node.js
     Error.captureStackTrace(this, this.constructor);
@@ -94,6 +109,11 @@ class CommanderError extends Error {
 }
 
 class Command extends EventEmitter {
+  [key: string]: any; // options as properties
+
+  args!: string[];
+
+  commands: Command[];
   /**
    * Initialize a new `Command`.
    *
@@ -101,7 +121,7 @@ class Command extends EventEmitter {
    * @api public
    */
 
-  constructor(name) {
+  constructor(name?: string) {
     super();
     this.commands = [];
     this.options = [];
@@ -160,8 +180,8 @@ class Command extends EventEmitter {
    * @api public
    */
 
-  command(nameAndArgs, actionOptsOrExecDesc, execOpts) {
-    let desc = actionOptsOrExecDesc;
+  command(nameAndArgs: string, actionOptsOrExecDesc?: CommandOptions | string, execOpts?: ExecutableCommandOptions) {
+    let desc: string | CommandOptions | undefined | null = actionOptsOrExecDesc;
     let opts = execOpts;
     if (typeof desc === 'object' && desc !== null) {
       opts = desc;
@@ -209,7 +229,7 @@ class Command extends EventEmitter {
    * @api public
    */
 
-  createCommand(name) {
+  createCommand(name?: string) {
     return new Command(name);
   };
 
@@ -224,12 +244,12 @@ class Command extends EventEmitter {
    * @api public
    */
 
-  addCommand(cmd, opts) {
+  addCommand(cmd: Command, opts?: CommandOptions) {
     if (!cmd._name) throw new Error('Command passed to .addCommand() must have a name');
 
     // To keep things simple, block automatic name generation for deeply nested executables.
     // Fail fast and detect when adding rather than later when parsing.
-    function checkExplicitNames(commandArray) {
+    function checkExplicitNames(commandArray: Command[]) {
       commandArray.forEach((cmd) => {
         if (cmd._executableHandler && !cmd._executableFile) {
           throw new Error(`Must specify executableFile for deeply nested executable: ${cmd.name()}`);
@@ -254,7 +274,7 @@ class Command extends EventEmitter {
    * @api public
    */
 
-  arguments(desc) {
+  arguments(desc: string) {
     return this._parseExpectedArgs(desc.split(/ +/));
   };
 
@@ -269,7 +289,7 @@ class Command extends EventEmitter {
    * @api public
    */
 
-  addHelpCommand(enableOrNameAndArgs, description) {
+  addHelpCommand(enableOrNameAndArgs?: boolean | string, description?: string) {
     if (enableOrNameAndArgs === false) {
       this._hasImplicitHelpCommand = false;
     } else {
@@ -305,7 +325,7 @@ class Command extends EventEmitter {
    * @api private
    */
 
-  _parseExpectedArgs(args) {
+  _parseExpectedArgs(args: any[]) {
     if (!args.length) return;
     args.forEach((arg) => {
       const argDetails = {
@@ -332,7 +352,7 @@ class Command extends EventEmitter {
         this._args.push(argDetails);
       }
     });
-    this._args.forEach((arg, i) => {
+    this._args.forEach((arg: any, i: number) => {
       if (arg.variadic && i < this._args.length - 1) {
         throw new Error(`only the last argument can be variadic '${arg.name}'`);
       }
@@ -348,11 +368,11 @@ class Command extends EventEmitter {
    * @api public
    */
 
-  exitOverride(fn) {
+  exitOverride(fn?: (err: CommanderError) => never | void) {
     if (fn) {
       this._exitCallback = fn;
     } else {
-      this._exitCallback = (err) => {
+      this._exitCallback = (err: CommanderError) => {
         if (err.code !== 'commander.executeSubCommandAsync') {
           throw err;
         } else {
@@ -373,7 +393,7 @@ class Command extends EventEmitter {
    * @api private
    */
 
-  _exit(exitCode, code, message) {
+  _exit(exitCode: number, code: string, message: string) {
     if (this._exitCallback) {
       this._exitCallback(new CommanderError(exitCode, code, message));
       // Expecting this line is not reached.
@@ -398,8 +418,8 @@ class Command extends EventEmitter {
    * @api public
    */
 
-  action(fn) {
-    const listener = (args) => {
+  action(fn: (...args: any[]) => void | Promise<void>) {
+    const listener = (args: any[]) => {
       // The .action callback takes an extra parameter which is the command or options.
       const expectedArgsCount = this._args.length;
       const actionArgs = args.slice(0, expectedArgsCount);
@@ -437,7 +457,7 @@ class Command extends EventEmitter {
    * @api private
    */
 
-  _optionEx(config, flags, description, fn, defaultValue) {
+  _optionEx(config: any, flags: string, description?: string, fn?: any, defaultValue?: any) {
     const option = new Option(flags, description);
     const oname = option.name();
     const name = option.attributeName();
@@ -449,7 +469,7 @@ class Command extends EventEmitter {
         // This is a bit simplistic (especially no error messages), and probably better handled by caller using custom option processing.
         // No longer documented in README, but still present for backwards compatibility.
         const regex = fn;
-        fn = (val, def) => {
+        fn = (val: any, def: any) => {
           const m = regex.exec(val);
           return m ? m[0] : def;
         };
@@ -478,7 +498,7 @@ class Command extends EventEmitter {
 
     // when it's passed assign the value
     // and conditionally invoke the callback
-    this.on('option:' + oname, (val) => {
+    this.on('option:' + oname, (val: any) => {
       // coercion
       if (val !== null && fn) {
         val = fn(val, this._getOptionValue(name) === undefined ? defaultValue : this._getOptionValue(name));
@@ -555,7 +575,7 @@ class Command extends EventEmitter {
    * @api public
    */
 
-  option(flags, description, fn, defaultValue) {
+  option<T>(flags: string, description?: string, fn?: (value: string, previous: T) => T | RegExp, defaultValue?: T) {
     return this._optionEx({}, flags, description, fn, defaultValue);
   };
 
@@ -573,7 +593,7 @@ class Command extends EventEmitter {
   * @api public
   */
 
-  requiredOption(flags, description, fn, defaultValue) {
+  requiredOption<T>(flags: string, description: string, fn: (value: string, previous: T) => T, defaultValue?: T) {
     return this._optionEx({ mandatory: true }, flags, description, fn, defaultValue);
   };
 
@@ -584,7 +604,7 @@ class Command extends EventEmitter {
    * for unknown options.
    * @api public
    */
-  allowUnknownOption(arg) {
+  allowUnknownOption(arg?: boolean) {
     this._allowUnknownOption = (arg === undefined) || arg;
     return this;
   };
@@ -598,7 +618,7 @@ class Command extends EventEmitter {
     * @api public
     */
 
-  storeOptionsAsProperties(value) {
+  storeOptionsAsProperties(value?: boolean) {
     this._storeOptionsAsProperties = (value === undefined) || value;
     if (this.options.length) {
       throw new Error('call .storeOptionsAsProperties() before adding options');
@@ -615,7 +635,7 @@ class Command extends EventEmitter {
     * @api public
     */
 
-  passCommandToAction(value) {
+  passCommandToAction(value?: boolean) {
     this._passCommandToAction = (value === undefined) || value;
     return this;
   };
@@ -628,7 +648,7 @@ class Command extends EventEmitter {
    * @api private
    */
 
-  _setOptionValue(key, value) {
+  _setOptionValue(key: string, value: any) {
     if (this._storeOptionsAsProperties) {
       this[key] = value;
     } else {
@@ -644,7 +664,7 @@ class Command extends EventEmitter {
    * @api private
    */
 
-  _getOptionValue(key) {
+  _getOptionValue(key: string) {
     if (this._storeOptionsAsProperties) {
       return this[key];
     }
@@ -670,7 +690,7 @@ class Command extends EventEmitter {
    * @api public
    */
 
-  parse(argv, parseOptions) {
+  parse(argv?: string[], parseOptions?: ParseOptions) {
     if (argv !== undefined && !Array.isArray(argv)) {
       throw new Error('first parameter to parse must be array or undefined');
     }
@@ -745,7 +765,7 @@ class Command extends EventEmitter {
    * @api public
    */
 
-  parseAsync(argv, parseOptions) {
+  parseAsync(argv?: string[], parseOptions?: ParseOptions) {
     this.parse(argv, parseOptions);
     return Promise.all(this._actionResults).then(() => this);
   };
@@ -756,7 +776,7 @@ class Command extends EventEmitter {
    * @api private
    */
 
-  _executeSubCommand(subcommand, args) {
+  _executeSubCommand(subcommand: Command, ...args: string[]) {
     args = args.slice();
     let launchWithNode = false; // Use node for source targets so do not need to get permissions correct, and on Windows.
     const sourceExt = ['.js', '.ts', '.mjs'];
@@ -795,7 +815,7 @@ class Command extends EventEmitter {
     }
     launchWithNode = sourceExt.includes(path.extname(bin));
 
-    let proc;
+    let proc: any;
     if (process.platform !== 'win32') {
       if (launchWithNode) {
         args.unshift(bin);
@@ -833,7 +853,7 @@ class Command extends EventEmitter {
         exitCallback(new CommanderError(process.exitCode || 0, 'commander.executeSubCommandAsync', '(close)'));
       });
     }
-    proc.on('error', (err) => {
+    proc.on('error', (err: any) => {
       // @ts-ignore
       if (err.code === 'ENOENT') {
         const executableMissing = `'${bin}' does not exist
@@ -860,9 +880,12 @@ class Command extends EventEmitter {
   /**
    * @api private
    */
-  _dispatchSubcommand(commandName, operands, unknown) {
+  _dispatchSubcommand(commandName: string, operands: any, unknown?: any) {
     const subCommand = this._findCommand(commandName);
-    if (!subCommand) this._helpAndError();
+    if (!subCommand) {
+      this._helpAndError();
+      return
+    }
 
     if (subCommand._executableHandler) {
       this._executeSubCommand(subCommand, operands.concat(unknown));
@@ -877,7 +900,7 @@ class Command extends EventEmitter {
    * @api private
    */
 
-  _parseCommand(operands, unknown) {
+  _parseCommand(operands: any, unknown: any) {
     const parsed = this.parseOptions(unknown);
     operands = operands.concat(parsed.operands);
     unknown = parsed.unknown;
@@ -907,8 +930,8 @@ class Command extends EventEmitter {
       }
 
       if (this._actionHandler) {
-        const args = this.args.slice();
-        this._args.forEach((arg, i) => {
+        const args: any[] = this.args.slice();
+        this._args.forEach((arg: any, i: number) => {
           if (arg.required && args[i] == null) {
             this.missingArgument(arg.name);
           } else if (arg.variadic) {
@@ -940,7 +963,7 @@ class Command extends EventEmitter {
    *
    * @api private
    */
-  _findCommand(name) {
+  _findCommand(name?: string) {
     if (!name) return undefined;
     return this.commands.find(cmd => cmd._name === name || cmd._aliases.includes(name));
   };
@@ -953,8 +976,8 @@ class Command extends EventEmitter {
    * @api private
    */
 
-  _findOption(arg) {
-    return this.options.find(option => option.is(arg));
+  _findOption(arg?: string) {
+    return this.options.find((option: Option) => option.is(arg));
   };
 
   /**
@@ -967,7 +990,7 @@ class Command extends EventEmitter {
   _checkForMissingMandatoryOptions() {
     // Walk up hierarchy so can call in subcommand after checking for displaying help.
     for (let cmd = this; cmd; cmd = cmd.parent) {
-      cmd.options.forEach((anOption) => {
+      cmd.options.forEach((anOption: Option) => {
         if (anOption.mandatory && (cmd._getOptionValue(anOption.attributeName()) === undefined)) {
           cmd.missingMandatoryOptionValue(anOption);
         }
@@ -992,19 +1015,19 @@ class Command extends EventEmitter {
    * @api public
    */
 
-  parseOptions(argv) {
-    const operands = []; // operands, not options or values
-    const unknown = []; // first unknown option and remaining unknown args
+  parseOptions(argv: string[]): ParseOptionsResult {
+    const operands: any[] = []; // operands, not options or values
+    const unknown: any[] = []; // first unknown option and remaining unknown args
     let dest = operands;
     const args = argv.slice();
 
-    function maybeOption(arg) {
+    function maybeOption(arg: string) {
       return arg.length > 1 && arg[0] === '-';
     }
 
     // parse options
     while (args.length) {
-      const arg = args.shift();
+      const arg: any = args.shift();
 
       // literal
       if (arg === '--') {
@@ -1082,7 +1105,7 @@ class Command extends EventEmitter {
   opts() {
     if (this._storeOptionsAsProperties) {
       // Preserve original behaviour so backwards compatible when still using properties
-      const result = {};
+      const result: any = {};
       const len = this.options.length;
 
       for (let i = 0; i < len; i++) {
@@ -1102,7 +1125,7 @@ class Command extends EventEmitter {
    * @api private
    */
 
-  missingArgument(name) {
+  missingArgument(name: string) {
     const message = `error: missing required argument '${name}'`;
     console.error(message);
     this._exit(1, 'commander.missingArgument', message);
@@ -1116,7 +1139,7 @@ class Command extends EventEmitter {
    * @api private
    */
 
-  optionMissingArgument(option, flag) {
+  optionMissingArgument(option: Option, flag?: string) {
     let message;
     if (flag) {
       message = `error: option '${option.flags}' argument missing, got '${flag}'`;
@@ -1134,7 +1157,7 @@ class Command extends EventEmitter {
    * @api private
    */
 
-  missingMandatoryOptionValue(option) {
+  missingMandatoryOptionValue(option: Option) {
     const message = `error: required option '${option.flags}' not specified`;
     console.error(message);
     this._exit(1, 'commander.missingMandatoryOptionValue', message);
@@ -1147,7 +1170,7 @@ class Command extends EventEmitter {
    * @api private
    */
 
-  unknownOption(flag) {
+  unknownOption(flag: string) {
     if (this._allowUnknownOption) return;
     const message = `error: unknown option '${flag}'`;
     console.error(message);
@@ -1186,7 +1209,7 @@ class Command extends EventEmitter {
    * @api public
    */
 
-  version(str, flags, description) {
+  version(str: string, flags?: string, description?: string) {
     if (str === undefined) return this._version;
     this._version = str;
     flags = flags || '-V, --version';
@@ -1210,7 +1233,7 @@ class Command extends EventEmitter {
    * @api public
    */
 
-  description(str, argsDescription) {
+  description(str: string, argsDescription?: {[argName: string]: string}) {
     if (str === undefined && argsDescription === undefined) return this._description;
     this._description = str;
     this._argsDescription = argsDescription;
@@ -1227,10 +1250,10 @@ class Command extends EventEmitter {
    * @api public
    */
 
-  alias(alias) {
+  alias(alias: string) {
     if (alias === undefined) return this._aliases[0]; // just return first, for backwards compatibility
 
-    let command = this;
+    let command: Command = this;
     if (this.commands.length !== 0 && this.commands[this.commands.length - 1]._executableHandler) {
       // assume adding alias for last added executable subcommand, rather than this
       command = this.commands[this.commands.length - 1];
@@ -1252,7 +1275,7 @@ class Command extends EventEmitter {
    * @api public
    */
 
-  aliases(aliases) {
+  aliases(aliases: string[]) {
     // Getter for the array of aliases is the main reason for having aliases() in addition to alias().
     if (aliases === undefined) return this._aliases;
 
@@ -1268,11 +1291,11 @@ class Command extends EventEmitter {
    * @api public
    */
 
-  usage(str) {
+  usage(str?: string) {
     if (str === undefined) {
       if (this._usage) return this._usage;
 
-      const args = this._args.map((arg) => {
+      const args = this._args.map((arg: any) => {
         return humanReadableArgName(arg);
       });
       return '[options]' +
@@ -1292,7 +1315,7 @@ class Command extends EventEmitter {
    * @api public
    */
 
-  name(str) {
+  name(str?: string) {
     if (str === undefined) return this._name;
     this._name = str;
     return this;
@@ -1309,7 +1332,7 @@ class Command extends EventEmitter {
     const commandDetails = this.commands.filter((cmd) => {
       return !cmd._hidden;
     }).map((cmd) => {
-      const args = cmd._args.map((arg) => {
+      const args = cmd._args.map((arg: any) => {
         return humanReadableArgName(arg);
       }).join(' ');
 
@@ -1350,7 +1373,7 @@ class Command extends EventEmitter {
    */
 
   largestOptionLength() {
-    const options = [].slice.call(this.options);
+    const options: any[] = [].slice.call(this.options);
     options.push({
       flags: this._helpFlags
     });
@@ -1368,7 +1391,7 @@ class Command extends EventEmitter {
    */
 
   largestArgLength() {
-    return this._args.reduce((max, arg) => {
+    return this._args.reduce((max: number, arg: any) => {
       return Math.max(max, arg.name.length);
     }, 0);
   };
@@ -1408,12 +1431,12 @@ class Command extends EventEmitter {
     const width = this.padWidth();
     const columns = process.stdout.columns || 80;
     const descriptionWidth = columns - width - 4;
-    function padOptionDetails(flags, description) {
+    function padOptionDetails(flags: string, description: string) {
       return pad(flags, width) + '  ' + optionalWrap(description, descriptionWidth, width + 2);
     };
 
     // Explicit options (including version)
-    const help = this.options.map((option) => {
+    const help = this.options.map((option: Option) => {
       const fullDesc = option.description +
         ((!option.negate && option.defaultValue !== undefined) ? ' (default: ' + JSON.stringify(option.defaultValue) + ')' : '');
       return padOptionDetails(option.flags, fullDesc);
@@ -1469,7 +1492,7 @@ class Command extends EventEmitter {
    */
 
   helpInformation() {
-    let desc = [];
+    let desc: string[] = [];
     if (this._description) {
       desc = [
         this._description,
@@ -1483,7 +1506,7 @@ class Command extends EventEmitter {
         const descriptionWidth = columns - width - 5;
         desc.push('Arguments:');
         desc.push('');
-        this._args.forEach((arg) => {
+        this._args.forEach((arg: any) => {
           desc.push('  ' + pad(arg.name, width) + '  ' + wrap(argsDescription[arg.name], descriptionWidth, width + 4));
         });
         desc.push('');
@@ -1503,7 +1526,7 @@ class Command extends EventEmitter {
       ''
     ];
 
-    let cmds = [];
+    let cmds: string[] = [];
     const commandHelp = this.commandHelp();
     if (commandHelp) cmds = [commandHelp];
 
@@ -1529,7 +1552,7 @@ class Command extends EventEmitter {
    * @api public
    */
 
-  outputHelp(cb) {
+  outputHelp(cb?: (str: string) => string) {
     if (!cb) {
       cb = (passthru) => {
         return passthru;
@@ -1553,7 +1576,7 @@ class Command extends EventEmitter {
    * @api public
    */
 
-  helpOption(flags, description) {
+  helpOption(flags?: string, description?: string) {
     this._helpFlags = flags || this._helpFlags;
     this._helpDescription = description || this._helpDescription;
 
@@ -1574,7 +1597,7 @@ class Command extends EventEmitter {
    * @api public
    */
 
-  help(cb) {
+  help(cb?: (str: string) => string) {
     this.outputHelp(cb);
     // exitCode: preserving original behaviour which was calling process.exit()
     // message: do not have all displayed text available so only passing placeholder.
@@ -1602,7 +1625,7 @@ class Command extends EventEmitter {
  * @api private
  */
 
-function camelcase(flag) {
+function camelcase(flag: string) {
   return flag.split('-').reduce((str, word) => {
     return str + word[0].toUpperCase() + word.slice(1);
   });
@@ -1617,7 +1640,7 @@ function camelcase(flag) {
  * @api private
  */
 
-function pad(str, width) {
+function pad(str: string, width: number) {
   const len = Math.max(0, width - str.length);
   return str + Array(len + 1).join(' ');
 }
@@ -1632,7 +1655,7 @@ function pad(str, width) {
  * @return {string}
  * @api private
  */
-function wrap(str, width, indent) {
+function wrap(str: string, width: number, indent: number) {
   const regex = new RegExp('.{1,' + (width - 1) + '}([\\s\u200B]|$)|[^\\s\u200B]+?([\\s\u200B]|$)', 'g');
   const lines = str.match(regex) || [];
   return lines.map((line, i) => {
@@ -1654,7 +1677,7 @@ function wrap(str, width, indent) {
  * @return {string}
  * @api private
  */
-function optionalWrap(str, width, indent) {
+function optionalWrap(str: string, width: number, indent: number) {
   // Detect manually wrapped and indented strings by searching for line breaks
   // followed by multiple spaces/tabs.
   if (str.match(/[\n]\s+/)) return str;
@@ -1673,7 +1696,7 @@ function optionalWrap(str, width, indent) {
  * @api private
  */
 
-function outputHelpIfRequested(cmd, args) {
+function outputHelpIfRequested(cmd: Command, args: string[]) {
   const helpOption = args.find(arg => arg === cmd._helpLongFlag || arg === cmd._helpShortFlag);
   if (helpOption) {
     cmd.outputHelp();
@@ -1690,7 +1713,7 @@ function outputHelpIfRequested(cmd, args) {
  * @api private
  */
 
-function humanReadableArgName(arg) {
+function humanReadableArgName(arg: any) {
   const nameOutput = arg.name + (arg.variadic === true ? '...' : '');
 
   return arg.required
@@ -1706,7 +1729,7 @@ function humanReadableArgName(arg) {
  * @api private
  */
 
-function incrementNodeInspectorPort(args) {
+function incrementNodeInspectorPort(args: string[]) {
   // Testing for these options:
   //  --inspect[=[host:]port]
   //  --inspect-brk[=[host:]port]
