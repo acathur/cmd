@@ -1,4 +1,3 @@
-
 import { EventEmitter } from 'https://deno.land/std/node/events.ts'
 import * as path from 'https://deno.land/std@0.54.0/path/mod.ts'
 import * as _process from 'https://deno.land/std/node/process.ts'
@@ -23,14 +22,14 @@ const existsSync = (filePath) => {
 
 export const fs = {
   existsSync,
-  realpathSync: Deno.realpathSync
+  realpathSync: Deno.realPathSync
 }
 
 export const process = {
   ..._process,
-  execPath: _process.execPath || Deno.execPath(),
-  execArgv: _process.execArgv || [],
-  stdout: _process.stdout || {
+  execPath: Deno.execPath(),
+  execArgv: Deno.args,
+  stdout: {
     columns: 80,
     write(str) {
         Deno.stdout.writeSync(new TextEncoder().encode(str))
