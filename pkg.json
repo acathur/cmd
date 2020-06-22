@@ -1,6 +1,6 @@
 {
   "name": "cmd",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "description": "Commander.js (command-line interfaces) for Deno.",
   "main": "mod.ts",
   "repository": "https://github.com/acathur/cmd",
