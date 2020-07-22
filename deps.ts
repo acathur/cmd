@@ -1,7 +1,7 @@
-export { EventEmitter } from 'https://deno.land/std@0.58.0/node/events.ts'
-export { Buffer } from 'https://deno.land/std@0.58.0/node/buffer.ts'
-export * as path from 'https://deno.land/std@0.58.0/path/mod.ts'
-import * as _process from 'https://deno.land/std@0.58.0/node/process.ts'
+export { EventEmitter } from 'https://deno.land/std@0.61.0/node/events.ts'
+export { Buffer } from 'https://deno.land/std@0.61.0/node/buffer.ts'
+export * as path from 'https://deno.land/std@0.61.0/path/mod.ts'
+import * as _process from 'https://deno.land/std@0.61.0/node/process.ts'
 
 export const spawn = (command: string, args: string[], opts?: any) => {
   return Deno.run({
